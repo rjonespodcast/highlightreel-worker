@@ -4,7 +4,9 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import FormData from 'form-data';
+
+// Worker version - UPDATE THIS WHEN DEPLOYING TO VERIFY CORRECT VERSION
+const WORKER_VERSION = '2.1.1';
 
 // Configuration from environment variables
 const PORT = process.env.PORT || 3000;
@@ -38,6 +40,8 @@ app.use(express.json());
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
+    version: WORKER_VERSION,
+    uploadMethod: 'base64-json',
     message: 'Railway worker is running',
     activeDownloads,
     isProcessing,
@@ -105,24 +109,27 @@ async function updateJobStatus(jobId, updates) {
 }
 
 async function uploadClipToStorage(filePath, jobId, storagePath) {
+  // Read file as base64 instead of using FormData
   const fileBuffer = fs.readFileSync(filePath);
+  const base64Data = fileBuffer.toString('base64');
   const fileName = path.basename(filePath);
+  const fileSize = fileBuffer.length;
   
-  const formData = new FormData();
-  formData.append('file', fileBuffer, {
-    filename: fileName,
-    contentType: 'video/mp4'
-  });
-  formData.append('jobId', jobId);
-  formData.append('storagePath', storagePath);
+  console.log(`📤 Uploading ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)} MB) as base64...`);
   
   const response = await fetch(`${LOVABLE_API_URL}/worker-upload-clip`, {
     method: 'POST',
     headers: { 
       'x-worker-key': WORKER_API_KEY,
-      ...formData.getHeaders()
+      'Content-Type': 'application/json'
     },
-    body: formData
+    body: JSON.stringify({
+      file: base64Data,
+      jobId,
+      storagePath,
+      fileName,
+      fileSize
+    })
   });
   
   if (!response.ok) {
@@ -327,7 +334,7 @@ function startPolling() {
 app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
-║           HighlightReel Download Worker v2.0              ║
+║           HighlightReel Download Worker v2.1              ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  🌐 Server: http://localhost:${PORT}                         ║
 ║  📊 Health: http://localhost:${PORT}/health                  ║
@@ -337,6 +344,7 @@ app.listen(PORT, () => {
 ║  • Poll Interval: ${POLL_INTERVAL_MS}ms                                ║
 ║  • Max Concurrent: ${MAX_CONCURRENT_DOWNLOADS}                                     ║
 ║  • API URL: ${LOVABLE_API_URL ? '✅ Connected' : '❌ Missing'}                             ║
+║  • Upload: Base64 JSON (v2.1)                             ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
   
