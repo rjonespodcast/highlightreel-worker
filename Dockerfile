@@ -1,20 +1,26 @@
 # Use Node.js with yt-dlp and ffmpeg pre-installed
 FROM node:20-slim
 
-# Install dependencies
+# Install dependencies including unzip for Deno
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     ffmpeg \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno (required JS runtime for yt-dlp YouTube extraction)
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="$DENO_INSTALL/bin:$PATH"
 
 # Install yt-dlp
 RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 # Verify installations
-RUN yt-dlp --version && ffmpeg -version
+RUN yt-dlp --version && deno --version && ffmpeg -version
 
 # Create app directory
 WORKDIR /app
