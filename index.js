@@ -6,7 +6,7 @@ import path from 'path';
 import os from 'os';
 
 // Worker version - UPDATE THIS WHEN DEPLOYING TO VERIFY CORRECT VERSION
-const WORKER_VERSION = '2.1.1';
+const WORKER_VERSION = '2.2.0';
 
 // Configuration from environment variables
 const PORT = process.env.PORT || 3000;
@@ -14,11 +14,28 @@ const LOVABLE_API_URL = process.env.LOVABLE_API_URL;
 const WORKER_API_KEY = process.env.WORKER_API_KEY;
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '10000');
 const MAX_CONCURRENT_DOWNLOADS = parseInt(process.env.MAX_CONCURRENT_DOWNLOADS || '2');
+const COOKIES_FILE = process.env.COOKIES_FILE || '/app/cookies.txt';
 
 // Validate required environment variables
 if (!LOVABLE_API_URL || !WORKER_API_KEY) {
   console.error('❌ Missing required environment variables: LOVABLE_API_URL, WORKER_API_KEY');
   process.exit(1);
+}
+
+// Load cookies from base64 environment variable if provided
+let cookiesLoaded = false;
+if (process.env.YOUTUBE_COOKIES_BASE64) {
+  try {
+    const cookiesContent = Buffer.from(process.env.YOUTUBE_COOKIES_BASE64, 'base64').toString('utf8');
+    fs.writeFileSync(COOKIES_FILE, cookiesContent);
+    cookiesLoaded = true;
+    console.log('🍪 Loaded cookies from YOUTUBE_COOKIES_BASE64 environment variable');
+  } catch (error) {
+    console.error('❌ Failed to load cookies from environment variable:', error.message);
+  }
+} else if (fs.existsSync(COOKIES_FILE)) {
+  cookiesLoaded = true;
+  console.log('🍪 Found existing cookies file at', COOKIES_FILE);
 }
 
 // Track active downloads
@@ -42,6 +59,7 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     version: WORKER_VERSION,
     uploadMethod: 'base64-json',
+    cookies: cookiesLoaded ? 'loaded' : 'none',
     message: 'Railway worker is running',
     activeDownloads,
     isProcessing,
@@ -167,6 +185,15 @@ async function runYtdlp(job, outputPath) {
       '--quiet',
       '--progress'
     ];
+    
+    // Add cookies if available for YouTube authentication
+    if (fs.existsSync(COOKIES_FILE)) {
+      args.push('--cookies', COOKIES_FILE);
+      console.log('🍪 Using cookies for YouTube authentication');
+    }
+    
+    // Use web player client for better compatibility
+    args.push('--extractor-args', 'youtube:player_client=web');
     
     if (job.accurate_cuts) {
       args.push('--force-keyframes-at-cuts');
@@ -334,7 +361,7 @@ function startPolling() {
 app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════════╗
-║           HighlightReel Download Worker v2.1              ║
+║           HighlightReel Download Worker v${WORKER_VERSION}             ║
 ╠═══════════════════════════════════════════════════════════╣
 ║  🌐 Server: http://localhost:${PORT}                         ║
 ║  📊 Health: http://localhost:${PORT}/health                  ║
@@ -344,7 +371,8 @@ app.listen(PORT, () => {
 ║  • Poll Interval: ${POLL_INTERVAL_MS}ms                                ║
 ║  • Max Concurrent: ${MAX_CONCURRENT_DOWNLOADS}                                     ║
 ║  • API URL: ${LOVABLE_API_URL ? '✅ Connected' : '❌ Missing'}                             ║
-║  • Upload: Base64 JSON (v2.1)                             ║
+║  • Cookies: ${cookiesLoaded ? '✅ Loaded' : '⚠️ None (may hit bot detection)'}                       ║
+║  • Upload: Base64 JSON                                    ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
   
